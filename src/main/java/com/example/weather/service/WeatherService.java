@@ -1,3 +1,4 @@
+
 package com.example.weather.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -25,73 +26,206 @@ public class WeatherService {
     private final ObjectMapper mapper = new ObjectMapper();
 
     public Map<String, Object> getCurrentWeather(String city) throws Exception {
-        String encodedCity = URLEncoder.encode(city, StandardCharsets.UTF_8);
 
-        if (apiKey != null && !apiKey.equals("YOUR_API_KEY") && !apiKey.isBlank()) {
-            String url = "https://api.openweathermap.org/data/2.5/weather?q=" + encodedCity + "&appid=" + apiKey + "&units=metric";
-            HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).GET().build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        if (city == null || city.isBlank()) {
+            throw new IllegalArgumentException("Please enter a city name.");
+        }
+
+        String encodedCity = URLEncoder.encode(
+                city.trim(), StandardCharsets.UTF_8);
+
+        // OpenWeatherMap (used only when a valid API key is configured)
+        if (apiKey != null
+                && !apiKey.isBlank()
+                && !apiKey.equals("YOUR_API_KEY")) {
+
+            String url = "https://api.openweathermap.org/data/2.5/weather?q="
+                    + encodedCity + "&appid=" + apiKey + "&units=metric";
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(
+                    request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() == 200) {
                 JsonNode root = mapper.readTree(response.body());
+
+                JsonNode main = root.path("main");
+                JsonNode weather = root.path("weather");
+
+                if (!main.hasNonNull("temp")
+                        || !main.hasNonNull("humidity")
+                        || weather.isEmpty()
+                        || !root.path("wind").hasNonNull("speed")) {
+                    throw new RuntimeException(
+                            "OpenWeatherMap returned incomplete weather data.");
+                }
+
                 Map<String, Object> data = new HashMap<>();
                 data.put("city", root.path("name").asText());
                 data.put("country", root.path("sys").path("country").asText());
-                data.put("temperature", root.path("main").path("temp").asDouble());
-                data.put("humidity", root.path("main").path("humidity").asInt());
-                data.put("windSpeed", root.path("wind").path("speed").asDouble());
-                data.put("description", root.path("weather").get(0).path("description").asText());
+                data.put("temperature", main.path("temp").asDouble());
+                data.put("humidity", main.path("humidity").asInt());
+                data.put("windSpeed",
+                        root.path("wind").path("speed").asDouble() * 3.6);
+                data.put("description",
+                        weather.get(0).path("description").asText());
+
                 return data;
             }
+
+            System.out.println("OpenWeatherMap HTTP Status: "
+                    + response.statusCode());
+            System.out.println("OpenWeatherMap Response: "
+                    + response.body());
+
+            // If the key is invalid or the API is unavailable,
+            // continue using Open-Meteo.
         }
 
+        // Open-Meteo fallback
         JsonNode geo = geocodeCity(encodedCity);
-        double lat = geo.path("latitude").asDouble();
-        double lon = geo.path("longitude").asDouble();
+
+        double lat = geo.path("latitude").asDouble(Double.NaN);
+        double lon = geo.path("longitude").asDouble(Double.NaN);
+
+        if (!Double.isFinite(lat) || !Double.isFinite(lon)) {
+            throw new RuntimeException("Invalid city coordinates received.");
+        }
 
         String weatherUrl = String.format(Locale.US,
-                "https://api.open-meteo.com/v1/forecast?latitude=%f&longitude=%f&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code",
+                "https://api.open-meteo.com/v1/forecast"
+                        + "?latitude=%f&longitude=%f"
+                        + "&current=temperature_2m,relative_humidity_2m,"
+                        + "wind_speed_10m,weather_code"
+                        + "&wind_speed_unit=kmh&timezone=auto",
                 lat, lon);
-        HttpRequest req = HttpRequest.newBuilder().uri(URI.create(weatherUrl)).GET().build();
-        HttpResponse<String> res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-        JsonNode current = mapper.readTree(res.body()).path("current");
+
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(weatherUrl))
+                .GET()
+                .build();
+
+        HttpResponse<String> res = httpClient.send(
+                req, HttpResponse.BodyHandlers.ofString());
+
+        System.out.println("Open-Meteo HTTP Status: " + res.statusCode());
+        System.out.println("Open-Meteo Response: " + res.body());
+
+        if (res.statusCode() != 200) {
+            throw new RuntimeException(
+                    "Weather API failed. HTTP Status: " + res.statusCode());
+        }
+
+        JsonNode responseJson = mapper.readTree(res.body());
+        JsonNode current = responseJson.path("current");
+
+        if (current.isMissingNode()
+                || current.isNull()
+                || !current.hasNonNull("temperature_2m")
+                || !current.hasNonNull("relative_humidity_2m")
+                || !current.hasNonNull("wind_speed_10m")
+                || !current.hasNonNull("weather_code")) {
+
+            throw new RuntimeException(
+                    "Weather API response is missing current weather data: "
+                            + res.body());
+        }
 
         Map<String, Object> data = new HashMap<>();
         data.put("city", geo.path("name").asText());
         data.put("country", geo.path("country").asText("N/A"));
-        data.put("temperature", current.path("temperature_2m").asDouble());
-        data.put("humidity", current.path("relative_humidity_2m").asInt());
-        data.put("windSpeed", current.path("wind_speed_10m").asDouble());
-        data.put("description", decodeWeatherCode(current.path("weather_code").asInt()));
+        data.put("temperature",
+                current.path("temperature_2m").asDouble());
+        data.put("humidity",
+                current.path("relative_humidity_2m").asInt());
+        data.put("windSpeed",
+                current.path("wind_speed_10m").asDouble());
+        data.put("description",
+                decodeWeatherCode(current.path("weather_code").asInt()));
+
         return data;
     }
 
     public Map<String, Object> get7DayForecast(String city) throws Exception {
-        String encodedCity = URLEncoder.encode(city, StandardCharsets.UTF_8);
+
+        if (city == null || city.isBlank()) {
+            throw new IllegalArgumentException("Please enter a city name.");
+        }
+
+        String encodedCity = URLEncoder.encode(
+                city.trim(), StandardCharsets.UTF_8);
+
         JsonNode geo = geocodeCity(encodedCity);
-        double lat = geo.path("latitude").asDouble();
-        double lon = geo.path("longitude").asDouble();
+
+        double lat = geo.path("latitude").asDouble(Double.NaN);
+        double lon = geo.path("longitude").asDouble(Double.NaN);
+
+        if (!Double.isFinite(lat) || !Double.isFinite(lon)) {
+            throw new RuntimeException("Invalid city coordinates received.");
+        }
 
         String url = String.format(Locale.US,
-                "https://api.open-meteo.com/v1/forecast?latitude=%f&longitude=%f&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto",
+                "https://api.open-meteo.com/v1/forecast"
+                        + "?latitude=%f&longitude=%f"
+                        + "&daily=weather_code,temperature_2m_max,"
+                        + "temperature_2m_min,precipitation_probability_max"
+                        + "&timezone=auto&forecast_days=7",
                 lat, lon);
-        HttpRequest req = HttpRequest.newBuilder().uri(URI.create(url)).GET().build();
-        HttpResponse<String> res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .GET()
+                .build();
+
+        HttpResponse<String> res = httpClient.send(
+                req, HttpResponse.BodyHandlers.ofString());
+
+        if (res.statusCode() != 200) {
+            throw new RuntimeException(
+                    "7-day forecast API failed. HTTP Status: "
+                            + res.statusCode() + " Response: " + res.body());
+        }
+
         JsonNode daily = mapper.readTree(res.body()).path("daily");
 
         JsonNode datesNode = daily.path("time");
         JsonNode maxTempNode = daily.path("temperature_2m_max");
         JsonNode minTempNode = daily.path("temperature_2m_min");
-        
+        JsonNode rainNode = daily.path("precipitation_probability_max");
+        JsonNode codeNode = daily.path("weather_code");
+
+        if (!datesNode.isArray()
+                || !maxTempNode.isArray()
+                || !minTempNode.isArray()
+                || !rainNode.isArray()
+                || !codeNode.isArray()
+                || datesNode.isEmpty()) {
+            throw new RuntimeException(
+                    "7-day forecast response is incomplete: " + res.body());
+        }
+
         int size = datesNode.size();
+
         Map<String, Object>[] daysArray = new Map[size];
-        
-        // Arrays for Chart.js Graphs
+
         String[] forecastDates = new String[size];
         double[] maxTemps = new double[size];
         double[] minTemps = new double[size];
 
         for (int i = 0; i < size; i++) {
+
+            if (maxTempNode.get(i).isNull()
+                    || minTempNode.get(i).isNull()
+                    || rainNode.get(i).isNull()
+                    || codeNode.get(i).isNull()) {
+                throw new RuntimeException(
+                        "Incomplete forecast data for day " + (i + 1));
+            }
+
             String dateStr = datesNode.get(i).asText();
             double maxT = maxTempNode.get(i).asDouble();
             double minT = minTempNode.get(i).asDouble();
@@ -104,8 +238,10 @@ public class WeatherService {
             day.put("date", dateStr);
             day.put("maxTemp", maxT);
             day.put("minTemp", minT);
-            day.put("rainChance", daily.path("precipitation_probability_max").get(i).asInt());
-            day.put("description", decodeWeatherCode(daily.path("weather_code").get(i).asInt()));
+            day.put("rainChance", rainNode.get(i).asInt());
+            day.put("description",
+                    decodeWeatherCode(codeNode.get(i).asInt()));
+
             daysArray[i] = day;
         }
 
@@ -113,8 +249,6 @@ public class WeatherService {
         result.put("city", geo.path("name").asText());
         result.put("country", geo.path("country").asText("N/A"));
         result.put("forecast", daysArray);
-        
-        // Adding chart datasets
         result.put("forecastDates", forecastDates);
         result.put("maxTemps", maxTemps);
         result.put("minTemps", minTemps);
@@ -122,57 +256,125 @@ public class WeatherService {
         return result;
     }
 
-    // --- AI Clothing & Activity Recommendation Feature ---
-    public String getSmartRecommendation(double temp, int rainChance, String description) {
-        String desc = description != null ? description.toLowerCase() : "";
-        if (rainChance > 70 || desc.contains("rain") || desc.contains("shower")) {
+    public String getSmartRecommendation(
+            double temp, int rainChance, String description) {
+
+        String desc = description != null
+                ? description.toLowerCase() : "";
+
+        if (rainChance > 70
+                || desc.contains("rain")
+                || desc.contains("shower")
+                || desc.contains("drizzle")
+                || desc.contains("thunderstorm")) {
+
             return "🌧️ Heavy rain chance! Don't forget to carry your umbrella today.";
+
         } else if (temp < 15.0) {
+
             return "🧥 Chilly weather! Grab a warm jacket and enjoy a hot cup of coffee.";
+
         } else if (temp > 30.0) {
+
             return "☀️ It's quite hot outside! Stay hydrated, wear sunglasses, and use sunscreen.";
+
         } else {
+
             return "🌤️ Pleasant weather outside. Have a wonderful and productive day!";
         }
     }
 
-    // --- NEW: AI Weather-Based Smart Trip & Itinerary Generator ---
-    public Map<String, String> generateItinerary(double temp, int humidity, String description) {
+    public Map<String, String> generateItinerary(
+            double temp, int humidity, String description) {
+
         Map<String, String> itinerary = new HashMap<>();
-        String descLower = description != null ? description.toLowerCase() : "";
+
+        String descLower = description != null
+                ? description.toLowerCase() : "";
 
         if (temp > 32) {
-            itinerary.put("morning", "🌅 Early Morning (6 AM - 9 AM): Great time for a quick outdoor walk before the sun gets harsh. Visit a local park or garden.");
-            itinerary.put("afternoon", "☀️ Afternoon (12 PM - 4 PM): High heat alert! Stay indoors in air-conditioned places. Visit a museum, art gallery, or chill at a cool café with iced coffee.");
-            itinerary.put("evening", "🌙 Evening (5 PM - 8 PM): Weather cools down slightly. Perfect for an ice cream run, shopping mall visit, or relaxing rooftop dinner.");
-        } else if (descLower.contains("rain") || descLower.contains("shower") || humidity > 85) {
-            itinerary.put("morning", "🌅 Early Morning (6 AM - 9 AM): Cozy indoor morning. Enjoy hot filter coffee/tea with snacks while listening to music.");
-            itinerary.put("afternoon", "🌧️ Afternoon (12 PM - 4 PM): Rainy conditions outside. Best for indoor board games, watching a movie, or visiting an indoor bookstore/library.");
-            itinerary.put("evening", "🌙 Evening (5 PM - 8 PM): Rain slows down. Take a peaceful umbrella walk on paved streets and enjoy hot street food snacks.");
+
+            itinerary.put("morning",
+                    "🌅 Early Morning (6 AM - 9 AM): Great time for a quick outdoor walk before the sun gets harsh. Visit a local park or garden.");
+
+            itinerary.put("afternoon",
+                    "☀️ Afternoon (12 PM - 4 PM): High heat alert! Stay indoors in air-conditioned places. Visit a museum, art gallery, or chill at a cool café with iced coffee.");
+
+            itinerary.put("evening",
+                    "🌙 Evening (5 PM - 8 PM): Weather cools down slightly. Perfect for an ice cream run, shopping mall visit, or relaxing rooftop dinner.");
+
+        } else if (descLower.contains("rain")
+                || descLower.contains("shower")
+                || descLower.contains("drizzle")
+                || descLower.contains("thunderstorm")
+                || humidity > 85) {
+
+            itinerary.put("morning",
+                    "🌅 Early Morning (6 AM - 9 AM): Cozy indoor morning. Enjoy hot filter coffee/tea with snacks while listening to music.");
+
+            itinerary.put("afternoon",
+                    "🌧️ Afternoon (12 PM - 4 PM): Rainy conditions outside. Best for indoor board games, watching a movie, or visiting an indoor bookstore/library.");
+
+            itinerary.put("evening",
+                    "🌙 Evening (5 PM - 8 PM): Rain slows down. Take a peaceful umbrella walk on paved streets and enjoy hot street food snacks.");
+
         } else if (temp < 18) {
-            itinerary.put("morning", "🌅 Early Morning (6 AM - 9 AM): Crisp cool weather! Great for an energizing jog or warm-up exercise with a light jacket.");
-            itinerary.put("afternoon", "🌤️ Afternoon (12 PM - 4 PM): Pleasant sunshine. Perfect time for sightseeing, historical monuments, or outdoor photography.");
-            itinerary.put("evening", "🌙 Evening (5 PM - 8 PM): Getting chilly. Enjoy a campfire, warm soup, or a cozy dinner at an open-air restaurant.");
+
+            itinerary.put("morning",
+                    "🌅 Early Morning (6 AM - 9 AM): Crisp cool weather! Great for an energizing jog or warm-up exercise with a light jacket.");
+
+            itinerary.put("afternoon",
+                    "🌤️ Afternoon (12 PM - 4 PM): Pleasant sunshine. Perfect time for sightseeing, historical monuments, or outdoor photography.");
+
+            itinerary.put("evening",
+                    "🌙 Evening (5 PM - 8 PM): Getting chilly. Enjoy a campfire, warm soup, or a cozy dinner at an open-air restaurant.");
+
         } else {
-            itinerary.put("morning", "🌅 Early Morning (6 AM - 9 AM): Perfect balanced weather! Ideal for outdoor cycling, jogging, or yoga in the park.");
-            itinerary.put("afternoon", "☀️ Afternoon (12 PM - 4 PM): Comfortable conditions. Good for exploring local markets, city tour, or casual outdoor cafe hopping.");
-            itinerary.put("evening", "🌙 Evening (5 PM - 8 PM): Beautiful evening breeze. Perfect for a long drive, beach walk, or hanging out with friends outdoors.");
+
+            itinerary.put("morning",
+                    "🌅 Early Morning (6 AM - 9 AM): Perfect balanced weather! Ideal for outdoor cycling, jogging, or yoga in the park.");
+
+            itinerary.put("afternoon",
+                    "☀️ Afternoon (12 PM - 4 PM): Comfortable conditions. Good for exploring local markets, city tour, or casual outdoor cafe hopping.");
+
+            itinerary.put("evening",
+                    "🌙 Evening (5 PM - 8 PM): Beautiful evening breeze. Perfect for a long drive, beach walk, or hanging out with friends outdoors.");
         }
+
         return itinerary;
     }
 
     private JsonNode geocodeCity(String encodedCity) throws Exception {
-        String geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name=" + encodedCity + "&count=1";
-        HttpRequest req = HttpRequest.newBuilder().uri(URI.create(geoUrl)).GET().build();
-        HttpResponse<String> res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-        JsonNode results = mapper.readTree(res.body()).path("results");
-        if (results.isMissingNode() || results.isEmpty()) {
-            throw new IllegalArgumentException("City not found: " + encodedCity);
+
+        String geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name="
+                + encodedCity + "&count=1";
+
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(geoUrl))
+                .GET()
+                .build();
+
+        HttpResponse<String> res = httpClient.send(
+                req, HttpResponse.BodyHandlers.ofString());
+
+        if (res.statusCode() != 200) {
+            throw new RuntimeException(
+                    "City search API failed. HTTP Status: "
+                            + res.statusCode());
         }
+
+        JsonNode results = mapper.readTree(res.body()).path("results");
+
+        if (!results.isArray() || results.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "City not found: " + encodedCity);
+        }
+
         return results.get(0);
     }
 
     private String decodeWeatherCode(int code) {
+
         return switch (code) {
             case 0 -> "Clear Sky";
             case 1, 2, 3 -> "Partly Cloudy";
