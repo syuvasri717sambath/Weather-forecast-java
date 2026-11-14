@@ -25,6 +25,7 @@ public class WeatherService {
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
 
+    // CURRENT WEATHER
     public Map<String, Object> getCurrentWeather(String city) throws Exception {
 
         if (city == null || city.isBlank()) {
@@ -34,7 +35,7 @@ public class WeatherService {
         String encodedCity = URLEncoder.encode(
                 city.trim(), StandardCharsets.UTF_8);
 
-        // OpenWeatherMap (used only when a valid API key is configured)
+        // OpenWeatherMap API (optional)
         if (apiKey != null
                 && !apiKey.isBlank()
                 && !apiKey.equals("YOUR_API_KEY")) {
@@ -51,8 +52,8 @@ public class WeatherService {
                     request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() == 200) {
-                JsonNode root = mapper.readTree(response.body());
 
+                JsonNode root = mapper.readTree(response.body());
                 JsonNode main = root.path("main");
                 JsonNode weather = root.path("weather");
 
@@ -65,12 +66,16 @@ public class WeatherService {
                 }
 
                 Map<String, Object> data = new HashMap<>();
+
                 data.put("city", root.path("name").asText());
                 data.put("country", root.path("sys").path("country").asText());
                 data.put("temperature", main.path("temp").asDouble());
                 data.put("humidity", main.path("humidity").asInt());
+
+                // Convert metres/second to km/h
                 data.put("windSpeed",
                         root.path("wind").path("speed").asDouble() * 3.6);
+
                 data.put("description",
                         weather.get(0).path("description").asText());
 
@@ -81,9 +86,6 @@ public class WeatherService {
                     + response.statusCode());
             System.out.println("OpenWeatherMap Response: "
                     + response.body());
-
-            // If the key is invalid or the API is unavailable,
-            // continue using Open-Meteo.
         }
 
         // Open-Meteo fallback
@@ -93,7 +95,7 @@ public class WeatherService {
         double lon = geo.path("longitude").asDouble(Double.NaN);
 
         if (!Double.isFinite(lat) || !Double.isFinite(lon)) {
-            throw new RuntimeException("Invalid city coordinates received.");
+            throw new RuntimeException("Invalid city coordinates.");
         }
 
         String weatherUrl = String.format(Locale.US,
@@ -117,7 +119,8 @@ public class WeatherService {
 
         if (res.statusCode() != 200) {
             throw new RuntimeException(
-                    "Weather API failed. HTTP Status: " + res.statusCode());
+                    "Weather API failed. HTTP Status: " + res.statusCode()
+                            + " Response: " + res.body());
         }
 
         JsonNode responseJson = mapper.readTree(res.body());
@@ -136,6 +139,7 @@ public class WeatherService {
         }
 
         Map<String, Object> data = new HashMap<>();
+
         data.put("city", geo.path("name").asText());
         data.put("country", geo.path("country").asText("N/A"));
         data.put("temperature",
@@ -150,6 +154,7 @@ public class WeatherService {
         return data;
     }
 
+    // 7-DAY WEATHER FORECAST
     public Map<String, Object> get7DayForecast(String city) throws Exception {
 
         if (city == null || city.isBlank()) {
@@ -165,7 +170,7 @@ public class WeatherService {
         double lon = geo.path("longitude").asDouble(Double.NaN);
 
         if (!Double.isFinite(lat) || !Double.isFinite(lon)) {
-            throw new RuntimeException("Invalid city coordinates received.");
+            throw new RuntimeException("Invalid city coordinates.");
         }
 
         String url = String.format(Locale.US,
@@ -186,7 +191,7 @@ public class WeatherService {
 
         if (res.statusCode() != 200) {
             throw new RuntimeException(
-                    "7-day forecast API failed. HTTP Status: "
+                    "Forecast API failed. HTTP Status: "
                             + res.statusCode() + " Response: " + res.body());
         }
 
@@ -204,11 +209,19 @@ public class WeatherService {
                 || !rainNode.isArray()
                 || !codeNode.isArray()
                 || datesNode.isEmpty()) {
+
             throw new RuntimeException(
                     "7-day forecast response is incomplete: " + res.body());
         }
 
         int size = datesNode.size();
+
+        if (maxTempNode.size() < size
+                || minTempNode.size() < size
+                || rainNode.size() < size
+                || codeNode.size() < size) {
+            throw new RuntimeException("Incomplete 7-day forecast data.");
+        }
 
         Map<String, Object>[] daysArray = new Map[size];
 
@@ -217,14 +230,6 @@ public class WeatherService {
         double[] minTemps = new double[size];
 
         for (int i = 0; i < size; i++) {
-
-            if (maxTempNode.get(i).isNull()
-                    || minTempNode.get(i).isNull()
-                    || rainNode.get(i).isNull()
-                    || codeNode.get(i).isNull()) {
-                throw new RuntimeException(
-                        "Incomplete forecast data for day " + (i + 1));
-            }
 
             String dateStr = datesNode.get(i).asText();
             double maxT = maxTempNode.get(i).asDouble();
@@ -235,6 +240,7 @@ public class WeatherService {
             minTemps[i] = minT;
 
             Map<String, Object> day = new HashMap<>();
+
             day.put("date", dateStr);
             day.put("maxTemp", maxT);
             day.put("minTemp", minT);
@@ -246,6 +252,7 @@ public class WeatherService {
         }
 
         Map<String, Object> result = new HashMap<>();
+
         result.put("city", geo.path("name").asText());
         result.put("country", geo.path("country").asText("N/A"));
         result.put("forecast", daysArray);
@@ -256,6 +263,7 @@ public class WeatherService {
         return result;
     }
 
+    // AI WEATHER RECOMMENDATION
     public String getSmartRecommendation(
             double temp, int rainChance, String description) {
 
@@ -284,6 +292,7 @@ public class WeatherService {
         }
     }
 
+    // WEATHER-BASED ITINERARY
     public Map<String, String> generateItinerary(
             double temp, int humidity, String description) {
 
@@ -344,35 +353,43 @@ public class WeatherService {
         return itinerary;
     }
 
+    // UPDATED CITY SEARCH / GEOCODING METHOD
     private JsonNode geocodeCity(String encodedCity) throws Exception {
 
         String geoUrl = "https://geocoding-api.open-meteo.com/v1/search?name="
-                + encodedCity + "&count=1";
+                + encodedCity + "&count=10&language=en&format=json";
 
         HttpRequest req = HttpRequest.newBuilder()
                 .uri(URI.create(geoUrl))
+                .header("User-Agent", "WeatherForecastApp/1.0")
                 .GET()
                 .build();
 
         HttpResponse<String> res = httpClient.send(
                 req, HttpResponse.BodyHandlers.ofString());
 
+        System.out.println("Geocoding HTTP Status: " + res.statusCode());
+        System.out.println("Geocoding API Response: " + res.body());
+
         if (res.statusCode() != 200) {
             throw new RuntimeException(
                     "City search API failed. HTTP Status: "
-                            + res.statusCode());
+                            + res.statusCode() + " Response: " + res.body());
         }
 
-        JsonNode results = mapper.readTree(res.body()).path("results");
+        JsonNode root = mapper.readTree(res.body());
+        JsonNode results = root.path("results");
 
         if (!results.isArray() || results.isEmpty()) {
             throw new IllegalArgumentException(
-                    "City not found: " + encodedCity);
+                    "City not found: " + encodedCity
+                            + ". API Response: " + res.body());
         }
 
         return results.get(0);
     }
 
+    // WEATHER CODE CONVERSION
     private String decodeWeatherCode(int code) {
 
         return switch (code) {
