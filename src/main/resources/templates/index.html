@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Weather Forecast Portal</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-dark text-light">
+<nav class="navbar navbar-expand-lg navbar-dark bg-black border-bottom border-secondary">
+    <div class="container">
+        <a class="navbar-brand fw-bold text-info" href="/">🌦️ WeatherCast Java</a>
+        <div class="navbar-nav ms-auto">
+            <a class="nav-link active" href="/">Current Weather</a>
+            <a class="nav-link" href="/forecast">7-Day Forecast</a>
+            <a class="nav-link" href="/compare">Compare Cities</a>
+            <a class="nav-link" href="/history">Search History</a>
+            <a class="nav-link text-warning" href="/admin">Admin Panel</a>
+        </div>
+    </div>
+</nav>
+
+<div class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-md-7">
+            <h2 class="text-center mb-4">Real-Time Weather Search</h2>
+            <form action="/" method="get" class="d-flex gap-2 mb-4">
+                <input type="text" name="city" class="form-control form-control-lg" placeholder="Enter city name (e.g., Chennai, London, Tokyo)" required>
+                <button type="submit" class="btn btn-info btn-lg fw-bold">Search</button>
+            </form>
+
+            <div th:if="${error}" class="alert alert-danger" th:text="${error}"></div>
+
+            <div th:if="${weather}" class="card bg-secondary text-white shadow-lg border-0">
+                <div class="card-body p-4 text-center">
+                    <h3 class="fw-bold"><span th:text="${weather.city}"></span>, <span th:text="${weather.country}"></span></h3>
+                    <h1 class="display-3 fw-bold text-info my-3"><span th:text="${weather.temperature}"></span> °C</h1>
+                    <p class="fs-4 text-uppercase badge bg-dark px-3 py-2" th:text="${weather.description}"></p>
+                    <hr class="border-light">
+                    <div class="row mt-3">
+                        <div class="col-6">
+                            <h5>💧 Humidity</h5>
+                            <p class="fs-5"><span th:text="${weather.humidity}"></span>%</p>
+                        </div>
+                        <div class="col-6">
+                            <h5>💨 Wind Speed</h5>
+                            <p class="fs-5"><span th:text="${weather.windSpeed}"></span> km/h</p>
+                        </div>
+                    </div>
+
+                    <!-- --- AI Clothing & Activity Recommendation Box --- -->
+                    <div class="alert alert-info mt-4 text-start shadow-sm border-0 bg-dark text-info" role="alert" th:if="${recommendation}">
+                        <h5 class="alert-heading fw-bold">💡 Smart AI Recommendation</h5>
+                        <p class="mb-0 fs-6 text-light" th:text="${recommendation}"></p>
+                    </div>
+                    <!-- ----------------------------------------------- -->
+
+                    <!-- --- AI Smart Trip & Activity Itinerary --- -->
+                    <div class="card bg-dark text-white shadow-sm border border-info mt-4 p-3 text-start" th:if="${itinerary}">
+                        <h5 class="text-info fw-bold mb-3">🗺️ AI Weather-Based Smart Day Itinerary</h5>
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <div class="p-2 bg-secondary rounded h-100">
+                                    <p class="text-warning fw-bold mb-1 small">Morning Plan</p>
+                                    <p class="small text-light mb-0" th:text="${itinerary.morning}"></p>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="p-2 bg-secondary rounded h-100">
+                                    <p class="text-warning fw-bold mb-1 small">Afternoon Plan</p>
+                                    <p class="small text-light mb-0" th:text="${itinerary.afternoon}"></p>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="p-2 bg-secondary rounded h-100">
+                                    <p class="text-warning fw-bold mb-1 small">Evening Plan</p>
+                                    <p class="small text-light mb-0" th:text="${itinerary.evening}"></p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- ----------------------------------------- -->
+
+                    <a th:href="@{/forecast(city=${weather.city})}" class="btn btn-outline-light mt-3">View 7-Day Forecast →</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+</body>
+</html>
