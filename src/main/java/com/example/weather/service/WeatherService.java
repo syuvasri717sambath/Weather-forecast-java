@@ -189,6 +189,11 @@ public class WeatherService {
         HttpResponse<String> res = httpClient.send(
                 req, HttpResponse.BodyHandlers.ofString());
 
+        // 7-DAY FORECAST DEBUGGING LOGS
+        System.out.println("7-Day Forecast API URL: " + url);
+        System.out.println("7-Day Forecast HTTP Status: " + res.statusCode());
+        System.out.println("7-Day Forecast API Response: " + res.body());
+
         if (res.statusCode() != 200) {
             throw new RuntimeException(
                     "Forecast API failed. HTTP Status: "
