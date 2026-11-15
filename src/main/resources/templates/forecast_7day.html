@@ -1,4 +1,85 @@
 
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>7-Day Weather Forecast & Analytics</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-dark text-light">
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-black border-bottom border-secondary">
+    <div class="container">
+        <a class="navbar-brand fw-bold text-info" href="/">🌦️ WeatherCast Java</a>
+        <div class="navbar-nav ms-auto">
+            <a class="nav-link" href="/">Current Weather</a>
+            <a class="nav-link active" href="/forecast">7-Day Forecast</a>
+            <a class="nav-link" href="/compare">Compare Cities</a>
+            <a class="nav-link" href="/history">Search History</a>
+            <a class="nav-link text-warning" href="/admin">Admin Panel</a>
+        </div>
+    </div>
+</nav>
+
+<div class="container py-5">
+
+    <form action="/forecast" method="get" class="row g-2 justify-content-center mb-4">
+        <div class="col-md-5">
+            <input type="text" name="city" class="form-control"
+                   placeholder="Search city for 7-day forecast..." required>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-info fw-bold">
+                Get 7-Day Forecast
+            </button>
+        </div>
+    </form>
+
+    <div th:if="${error}" class="alert alert-danger text-center"
+         th:text="${error}"></div>
+
+    <div th:if="${data}">
+        <h3 class="text-center mb-4">
+            7-Day Forecast for
+            <span class="text-info" th:text="${data.city}"></span>
+            (<span th:text="${data.country}"></span>)
+        </h3>
+
+        <!-- Chart.js Analytics Card -->
+        <div class="card bg-secondary text-white p-4 mb-4 border-0 shadow-lg">
+            <h5 class="card-title mb-3 text-info fw-bold">
+                📈 7-Day Temperature Trend Analytics
+            </h5>
+
+            <div style="position: relative; height: 320px; width: 100%;">
+                <canvas id="tempChart"
+                        style="display: block; width: 100%; height: 100%;"></canvas>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            <div class="col-md-3" th:each="day : ${data.forecast}">
+                <div class="card bg-secondary text-white h-100 shadow-sm border-0">
+                    <div class="card-body text-center">
+                        <h5 class="fw-bold text-warning" th:text="${day.date}"></h5>
+                        <p class="badge bg-dark my-2" th:text="${day.description}"></p>
+                        <p class="mb-1">
+                            🔺 Max: <strong th:text="${day.maxTemp}"></strong> °C
+                        </p>
+                        <p class="mb-1">
+                            🔻 Min: <strong th:text="${day.minTemp}"></strong> °C
+                        </p>
+                        <p class="mb-0 text-info">
+                            ☔ Rain: <span th:text="${day.rainChance}"></span>%
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Chart.js Initialization Script -->
 <script th:if="${data != null and data.forecast != null}"
         th:inline="javascript">
@@ -40,6 +121,7 @@
             },
             options: {
                 responsive: true,
+                maintainAspectRatio: false,
                 plugins: {
                     legend: {
                         labels: { color: '#ffffff' }
@@ -61,3 +143,6 @@
 
     /*]]>*/
 </script>
+
+</body>
+</html>
