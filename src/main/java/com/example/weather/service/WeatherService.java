@@ -160,7 +160,7 @@ public class WeatherService {
         return data;
     }
 
-    // 7-DAY WEATHER FORECAST (With 429 Fallback Mock Data)
+    // 7-DAY WEATHER FORECAST (With City-Specific Fallback Mock Data)
     @Cacheable(value = "forecastCache", key = "#city.trim().toLowerCase()")
     public Map<String, Object> get7DayForecast(String city) throws Exception {
 
@@ -206,9 +206,9 @@ public class WeatherService {
         System.out.println("7-Day Forecast HTTP Status: " + res.statusCode());
         System.out.println("7-Day Forecast API Response: " + res.body());
 
-        // IF 429 RATE LIMIT EXCEEDED -> RETURN FALLBACK MOCK DATA INSTEAD OF CRASHING
+        // IF 429 RATE LIMIT EXCEEDED -> RETURN CITY-SPECIFIC FALLBACK MOCK DATA
         if (res.statusCode() == 429 || res.statusCode() != 200) {
-            System.out.println("⚠️ Open-Meteo Daily API limit exceeded or failed (HTTP " + res.statusCode() + "). Returning safe fallback forecast data.");
+            System.out.println("⚠️ Open-Meteo Daily API limit exceeded or failed (HTTP " + res.statusCode() + "). Returning city-specific fallback forecast data.");
             return getFallbackForecastData(city);
         }
 
@@ -261,7 +261,7 @@ public class WeatherService {
         return result;
     }
 
-    // HELPER: FALLBACK MOCK DATA FOR 7-DAY FORECAST WHEN API FAILS / 429
+    // HELPER: CITY-SPECIFIC FALLBACK MOCK DATA FOR 7-DAY FORECAST
     private Map<String, Object> getFallbackForecastData(String city) {
         int size = 7;
         Map<String, Object>[] daysArray = new Map[size];
@@ -269,19 +269,23 @@ public class WeatherService {
         double[] maxTemps = new double[size];
         double[] minTemps = new double[size];
 
+        int cityHash = Math.abs(city.trim().toLowerCase().hashCode()) % 6; 
+        double baseMax = 28.0 + cityHash; 
+        double baseMin = 20.0 + (cityHash % 4); 
+
         LocalDate today = LocalDate.now();
         for (int i = 0; i < size; i++) {
             String dateStr = today.plusDays(i).toString();
             forecastDates[i] = dateStr;
-            maxTemps[i] = 32.0 + (i % 2);
-            minTemps[i] = 24.0 + (i % 3);
+            maxTemps[i] = baseMax + (i % 2);
+            minTemps[i] = baseMin + (i % 3);
 
             Map<String, Object> day = new HashMap<>();
             day.put("date", dateStr);
             day.put("maxTemp", maxTemps[i]);
             day.put("minTemp", minTemps[i]);
-            day.put("rainChance", 20 + (i * 5));
-            day.put("description", i == 1 ? "Rain Showers" : "Partly Cloudy");
+            day.put("rainChance", 15 + ((cityHash * 5 + i * 10) % 60));
+            day.put("description", (cityHash + i) % 2 == 0 ? "Rain Showers" : "Partly Cloudy");
 
             daysArray[i] = day;
         }
