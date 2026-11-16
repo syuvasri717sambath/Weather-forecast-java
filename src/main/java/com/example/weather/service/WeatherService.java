@@ -1,9 +1,9 @@
-
 package com.example.weather.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.Cacheable; // <-- Added for Caching
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -25,7 +25,8 @@ public class WeatherService {
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final ObjectMapper mapper = new ObjectMapper();
 
-    // CURRENT WEATHER
+    // CURRENT WEATHER (Added Caching)
+    @Cacheable(value = "currentWeatherCache", key = "#city.trim().toLowerCase()")
     public Map<String, Object> getCurrentWeather(String city) throws Exception {
 
         if (city == null || city.isBlank()) {
@@ -117,6 +118,10 @@ public class WeatherService {
         System.out.println("Open-Meteo HTTP Status: " + res.statusCode());
         System.out.println("Open-Meteo Response: " + res.body());
 
+        if (res.statusCode() == 429) {
+            throw new RuntimeException("Daily API request limit exceeded (HTTP 429). Please try again later or check cached data.");
+        }
+
         if (res.statusCode() != 200) {
             throw new RuntimeException(
                     "Weather API failed. HTTP Status: " + res.statusCode()
@@ -154,7 +159,8 @@ public class WeatherService {
         return data;
     }
 
-    // 7-DAY WEATHER FORECAST
+    // 7-DAY WEATHER FORECAST (Added Caching)
+    @Cacheable(value = "forecastCache", key = "#city.trim().toLowerCase()")
     public Map<String, Object> get7DayForecast(String city) throws Exception {
 
         if (city == null || city.isBlank()) {
@@ -193,6 +199,10 @@ public class WeatherService {
         System.out.println("7-Day Forecast API URL: " + url);
         System.out.println("7-Day Forecast HTTP Status: " + res.statusCode());
         System.out.println("7-Day Forecast API Response: " + res.body());
+
+        if (res.statusCode() == 429) {
+            throw new RuntimeException("Daily API request limit exceeded (HTTP 429). Please try again later or check cached results.");
+        }
 
         if (res.statusCode() != 200) {
             throw new RuntimeException(
